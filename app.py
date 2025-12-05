@@ -194,6 +194,7 @@ def create_map(images_data, video_gps_data):
     
     # Video GPS track
     if video_gps_data:
+        log.info(f"[DEBUG] Starting video GPS section, creating feature groups")
         video_fg = folium.FeatureGroup(name='Video Points', show=True)
         track_fg = folium.FeatureGroup(name='Track', show=True)
         
@@ -245,6 +246,7 @@ def create_map(images_data, video_gps_data):
                     popup=folium.Popup(popup_html, max_width=180)
                 ).add_to(video_fg)
         
+        log.info(f"[DEBUG] About to add video_fg to map, map type: {type(m)}")
         video_fg.add_to(m)
         track_fg.add_to(m)
     
