@@ -5,6 +5,7 @@ services:
     region: oregon
     plan: free
     branch: main
+    rootDir: drone_viewer_render
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
