@@ -211,6 +211,30 @@ def create_map(images_data, video_gps_data):
         # Sample markers (every 30 points to avoid clutter)
         for i, pt in enumerate(video_gps_data):
             if i % 30 == 0:
+                # Convert timestamp to seconds for video seeking
+                ts = pt['timestamp']  # Format: 00:00:12,345
+                ts_parts = ts.split(':')
+                if len(ts_parts) == 3:
+                    h, m, s_ms = ts_parts
+                    if ',' in s_ms:
+                        s, ms = s_ms.split(',')
+                    else:
+                        s, ms = s_ms, '0'
+                    seconds = int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+                else:
+                    seconds = 0
+                
+                popup_html = f'''
+                <div style="width:150px">
+                    <p><strong>Time: {pt['timestamp']}</strong></p>
+                    <p>Altitude: {pt['alt']:.1f}m</p>
+                    <button onclick="parent.seekVideo({seconds})" 
+                            style="width:100%;padding:5px;background:#d32f2f;color:white;border:none;cursor:pointer;border-radius:3px;margin-top:5px">
+                        Jump to timestamp
+                    </button>
+                </div>
+                '''
+                
                 folium.CircleMarker(
                     location=[pt['lat'], pt['lon']],
                     radius=4,
@@ -218,7 +242,7 @@ def create_map(images_data, video_gps_data):
                     fill=True,
                     fillColor='red',
                     fillOpacity=0.6,
-                    popup=f"Time: {pt['timestamp']}<br>Alt: {pt['alt']:.1f}m"
+                    popup=folium.Popup(popup_html, max_width=180)
                 ).add_to(video_fg)
         
         video_fg.add_to(m)
@@ -228,6 +252,85 @@ def create_map(images_data, video_gps_data):
     folium.LayerControl(collapsed=False).add_to(m)
     
     log.info(f"[MAP] Created map with {len(images_data)} images, {len(video_gps_data)} video points")
+    
+    # Add custom JavaScript for video progress marker
+    if video_gps_data:
+        marker_script = '''
+        <script>
+        var progressMarker = null;
+        var progressCircle = null;
+        
+        // Listen for video time updates from parent window
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'updateVideoMarker') {
+                var currentTime = event.data.currentTime;
+                var gpsData = event.data.gpsData;
+                
+                // Find closest GPS point for current video time
+                var closestPoint = null;
+                var minDiff = Infinity;
+                
+                for (var i = 0; i < gpsData.length; i++) {
+                    var pt = gpsData[i];
+                    var ts = pt.timestamp;
+                    
+                    // Convert timestamp to seconds
+                    var parts = ts.split(':');
+                    if (parts.length === 3) {
+                        var h = parseInt(parts[0]);
+                        var m = parseInt(parts[1]);
+                        var s_ms = parts[2].split(',');
+                        var s = parseInt(s_ms[0]);
+                        var ms = s_ms.length > 1 ? parseInt(s_ms[1]) : 0;
+                        var seconds = h * 3600 + m * 60 + s + ms / 1000.0;
+                        
+                        var diff = Math.abs(seconds - currentTime);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closestPoint = pt;
+                        }
+                    }
+                }
+                
+                // Update or create progress marker
+                if (closestPoint) {
+                    var lat = closestPoint.lat;
+                    var lon = closestPoint.lon;
+                    
+                    if (!progressMarker) {
+                        // Create yellow pulsing marker
+                        progressMarker = L.marker([lat, lon], {
+                            icon: L.divIcon({
+                                className: 'video-progress-marker',
+                                html: '<div style="background:yellow;width:16px;height:16px;border-radius:50%;border:3px solid orange;box-shadow:0 0 10px yellow;"></div>',
+                                iconSize: [22, 22],
+                                iconAnchor: [11, 11]
+                            }),
+                            zIndexOffset: 1000
+                        });
+                        progressMarker.addTo(map_''' + m._name + ''');
+                        
+                        // Also add a larger circle for visibility
+                        progressCircle = L.circle([lat, lon], {
+                            radius: 10,
+                            color: 'orange',
+                            fillColor: 'yellow',
+                            fillOpacity: 0.4,
+                            weight: 2
+                        });
+                        progressCircle.addTo(map_''' + m._name + ''');
+                    } else {
+                        // Update existing marker position
+                        progressMarker.setLatLng([lat, lon]);
+                        progressCircle.setLatLng([lat, lon]);
+                    }
+                }
+            }
+        });
+        </script>
+        '''
+        m.get_root().html.add_child(folium.Element(marker_script))
+    
     return m.get_root().render()
 
 @app.route('/')
@@ -329,6 +432,8 @@ def index():
         <script src="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.js"></script>
         <script>
             let viewer = null;
+            const hasVideo = {{ has_video }};
+            const videoGpsData = {{ video_gps_json | safe }};
             
             function showImage(imgPath) {
                 const container = document.getElementById('image-viewer');
@@ -347,6 +452,41 @@ def index():
                 viewer.show();
             }
             
+            function seekVideo(seconds) {
+                const video = document.querySelector('video');
+                if (video) {
+                    video.currentTime = seconds;
+                    video.play();
+                    // Scroll video into view
+                    video.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } else {
+                    alert('No video loaded');
+                }
+            }
+            
+            // Video progress marker synchronization
+            if (hasVideo && videoGpsData.length > 0) {
+                const video = document.querySelector('video');
+                if (video) {
+                    video.addEventListener('timeupdate', function() {
+                        const currentTime = video.currentTime;
+                        updateVideoMarker(currentTime);
+                    });
+                }
+            }
+            
+            function updateVideoMarker(currentSeconds) {
+                // Send message to map iframe to update marker
+                const mapFrame = document.getElementById('map-frame');
+                if (mapFrame && mapFrame.contentWindow) {
+                    mapFrame.contentWindow.postMessage({
+                        type: 'updateVideoMarker',
+                        currentTime: currentSeconds,
+                        gpsData: videoGpsData
+                    }, '*');
+                }
+            }
+            
             function clearAllData() {
                 if (!confirm('This will delete all uploaded images and videos. Continue?')) return;
                 fetch('/clear_data', { method: 'POST' })
@@ -359,12 +499,18 @@ def index():
             }
             
             window.showImage = showImage;
+            window.seekVideo = seekVideo;
         </script>
     </body>
     </html>
     '''
     
-    return render_template_string(html_template, video_file=video_file)
+    # Convert video GPS data to JSON for JavaScript
+    import json
+    video_gps_json = json.dumps(video_gps_data) if video_gps_data else '[]'
+    has_video = 'true' if video_file else 'false'
+    
+    return render_template_string(html_template, video_file=video_file, video_gps_json=video_gps_json, has_video=has_video)
 
 @app.route('/map')
 def map_view():
