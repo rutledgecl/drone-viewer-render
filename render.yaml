@@ -10,9 +10,3 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: UPLOAD_FOLDER
-        value: /opt/render/project/src/uploads
-    disk:
-      name: uploads
-      mountPath: /opt/render/project/src/uploads
-      sizeGB: 1
