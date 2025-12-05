@@ -250,7 +250,6 @@ def index():
     
     # Create map
     map_html = create_map(images_data, video_gps_data)
-    map_html_escaped = html.escape(map_html)
     
     # HTML template
     html_template = '''
@@ -306,7 +305,7 @@ def index():
                 {% endif %}
             </div>
             <div id="right-panel">
-                <iframe id="map-frame" srcdoc="{{ map_html }}"></iframe>
+                <iframe id="map-frame" srcdoc="{{ map_html | safe }}"></iframe>
             </div>
         </div>
         
@@ -348,7 +347,7 @@ def index():
     </html>
     '''
     
-    return render_template_string(html_template, map_html=map_html_escaped, video_file=video_file)
+    return render_template_string(html_template, map_html=map_html, video_file=video_file)
 
 @app.route('/upload', methods=['POST'])
 def upload():
