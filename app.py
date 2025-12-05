@@ -5,7 +5,6 @@ Supports GPS-tagged images and DJI SRT video files
 """
 import os
 import re
-import html
 import logging
 from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, jsonify
@@ -91,6 +90,7 @@ def extract_gps_from_image(filepath):
         gps_alt = tags.get('GPS GPSAltitude')
         
         if not all([gps_lat, gps_lat_ref, gps_lon, gps_lon_ref]):
+            log.warning(f"[GPS] No GPS data in {os.path.basename(filepath)}")
             return None
         
         def dms_to_decimal(dms, ref):
@@ -112,15 +112,20 @@ def extract_gps_from_image(filepath):
             except:
                 pass
         
+        log.info(f"[GPS] Extracted from {os.path.basename(filepath)}: {lat:.6f}, {lon:.6f}, alt={alt:.1f}m")
         return {'lat': lat, 'lon': lon, 'alt': alt}
     except Exception as e:
-        log.debug(f"GPS extraction failed: {e}")
+        log.error(f"[GPS] Extraction failed for {os.path.basename(filepath)}: {e}")
         return None
 
 def create_map(images_data, video_gps_data):
     """Create Folium map with markers and tracks."""
-    import folium
-    from folium import plugins
+    try:
+        import folium
+        from folium import plugins
+    except ImportError as e:
+        log.error(f"[MAP] Failed to import folium: {e}")
+        raise
     
     # Calculate center
     all_coords = []
@@ -219,6 +224,7 @@ def create_map(images_data, video_gps_data):
     # Layer control
     folium.LayerControl(collapsed=False).add_to(m)
     
+    log.info(f"[MAP] Created map with {len(images_data)} images, {len(video_gps_data)} video points")
     return m.get_root().render()
 
 @app.route('/')
@@ -230,13 +236,20 @@ def index():
     
     # Scan for uploaded images
     img_dir = os.path.join(UPLOAD_FOLDER, 'images')
+    log.info(f"[INDEX] Scanning for images in: {img_dir}")
+    log.info(f"[INDEX] Upload folder exists: {os.path.exists(img_dir)}")
     if os.path.exists(img_dir):
-        for fname in os.listdir(img_dir):
-            if fname.lower().endswith(('.jpg', '.jpeg', '.png')):
-                fpath = os.path.join(img_dir, fname)
-                gps = extract_gps_from_image(fpath)
-                if gps:
-                    images_data.append({'filename': fname, 'gps': gps})
+        image_files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        log.info(f"[INDEX] Found {len(image_files)} image files: {image_files}")
+        for fname in image_files:
+            fpath = os.path.join(img_dir, fname)
+            log.info(f"[INDEX] Processing {fname}, file exists: {os.path.exists(fpath)}")
+            gps = extract_gps_from_image(fpath)
+            if gps:
+                images_data.append({'filename': fname, 'gps': gps})
+                log.info(f"[INDEX] Added {fname} to map data")
+    else:
+        log.warning(f"[INDEX] Images directory does not exist: {img_dir}")
     
     # Scan for video and SRT
     for fname in os.listdir(UPLOAD_FOLDER):
