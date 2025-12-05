@@ -24,6 +24,9 @@ UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(os.getcwd(), 'uploa
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_FOLDER, 'images'), exist_ok=True)
 
+# Global cache for current map data
+current_map_data = {'images': [], 'video_gps': []}
+
 def parse_srt(srt_path):
     """Parse DJI SRT files with GPS data."""
     gps_data = []
@@ -261,8 +264,9 @@ def index():
     
     log.info(f"[INDEX] Images: {len(images_data)}, Video GPS: {len(video_gps_data)}")
     
-    # Create map
-    map_html = create_map(images_data, video_gps_data)
+    # Store data globally for /map route
+    global current_map_data
+    current_map_data = {'images': images_data, 'video_gps': video_gps_data}
     
     # HTML template
     html_template = '''
@@ -318,7 +322,7 @@ def index():
                 {% endif %}
             </div>
             <div id="right-panel">
-                <iframe id="map-frame" srcdoc="{{ map_html | safe }}"></iframe>
+                <iframe id="map-frame" src="/map"></iframe>
             </div>
         </div>
         
@@ -360,7 +364,14 @@ def index():
     </html>
     '''
     
-    return render_template_string(html_template, map_html=map_html, video_file=video_file)
+    return render_template_string(html_template, video_file=video_file)
+
+@app.route('/map')
+def map_view():
+    """Serve the Folium map HTML."""
+    global current_map_data
+    map_html = create_map(current_map_data['images'], current_map_data['video_gps'])
+    return map_html
 
 @app.route('/upload', methods=['POST'])
 def upload():
