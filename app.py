@@ -253,85 +253,96 @@ def create_map(images_data, video_gps_data):
     
     log.info(f"[MAP] Created map with {len(images_data)} images, {len(video_gps_data)} video points")
     
-    # Add custom JavaScript for video progress marker
-    if video_gps_data:
-        marker_script = '''
-        <script>
-        var progressMarker = null;
-        var progressCircle = null;
-        
-        // Listen for video time updates from parent window
-        window.addEventListener('message', function(event) {
-            if (event.data.type === 'updateVideoMarker') {
-                var currentTime = event.data.currentTime;
-                var gpsData = event.data.gpsData;
-                
-                // Find closest GPS point for current video time
-                var closestPoint = null;
-                var minDiff = Infinity;
-                
-                for (var i = 0; i < gpsData.length; i++) {
-                    var pt = gpsData[i];
-                    var ts = pt.timestamp;
-                    
-                    // Convert timestamp to seconds
-                    var parts = ts.split(':');
-                    if (parts.length === 3) {
-                        var h = parseInt(parts[0]);
-                        var m = parseInt(parts[1]);
-                        var s_ms = parts[2].split(',');
-                        var s = parseInt(s_ms[0]);
-                        var ms = s_ms.length > 1 ? parseInt(s_ms[1]) : 0;
-                        var seconds = h * 3600 + m * 60 + s + ms / 1000.0;
-                        
-                        var diff = Math.abs(seconds - currentTime);
-                        if (diff < minDiff) {
-                            minDiff = diff;
-                            closestPoint = pt;
-                        }
-                    }
-                }
-                
-                // Update or create progress marker
-                if (closestPoint) {
-                    var lat = closestPoint.lat;
-                    var lon = closestPoint.lon;
-                    
-                    if (!progressMarker) {
-                        // Create yellow pulsing marker
-                        progressMarker = L.marker([lat, lon], {
-                            icon: L.divIcon({
-                                className: 'video-progress-marker',
-                                html: '<div style="background:yellow;width:16px;height:16px;border-radius:50%;border:3px solid orange;box-shadow:0 0 10px yellow;"></div>',
-                                iconSize: [22, 22],
-                                iconAnchor: [11, 11]
-                            }),
-                            zIndexOffset: 1000
-                        });
-                        progressMarker.addTo(map_''' + m._name + ''');
-                        
-                        // Also add a larger circle for visibility
-                        progressCircle = L.circle([lat, lon], {
-                            radius: 10,
-                            color: 'orange',
-                            fillColor: 'yellow',
-                            fillOpacity: 0.4,
-                            weight: 2
-                        });
-                        progressCircle.addTo(map_''' + m._name + ''');
-                    } else {
-                        // Update existing marker position
-                        progressMarker.setLatLng([lat, lon]);
-                        progressCircle.setLatLng([lat, lon]);
-                    }
-                }
-            }
-        });
-        </script>
-        '''
-        m.get_root().html.add_child(folium.Element(marker_script))
+    # Get the map's HTML representation first
+    map_html = m.get_root().render()
     
-    return m.get_root().render()
+    # Add custom JavaScript for video progress marker if we have video data
+    if video_gps_data:
+        # Find the map variable name in the rendered HTML
+        import re
+        map_var_match = re.search(r'var (map_[a-f0-9]+) = L\.map\(', map_html)
+        if map_var_match:
+            map_var_name = map_var_match.group(1)
+            
+            marker_script = f'''
+            <script>
+            var progressMarker = null;
+            var progressCircle = null;
+            
+            // Listen for video time updates from parent window
+            window.addEventListener('message', function(event) {{
+                if (event.data.type === 'updateVideoMarker') {{
+                    var currentTime = event.data.currentTime;
+                    var gpsData = event.data.gpsData;
+                    
+                    // Find closest GPS point for current video time
+                    var closestPoint = null;
+                    var minDiff = Infinity;
+                    
+                    for (var i = 0; i < gpsData.length; i++) {{
+                        var pt = gpsData[i];
+                        var ts = pt.timestamp;
+                        
+                        // Convert timestamp to seconds
+                        var parts = ts.split(':');
+                        if (parts.length === 3) {{
+                            var h = parseInt(parts[0]);
+                            var m = parseInt(parts[1]);
+                            var s_ms = parts[2].split(',');
+                            var s = parseInt(s_ms[0]);
+                            var ms = s_ms.length > 1 ? parseInt(s_ms[1]) : 0;
+                            var seconds = h * 3600 + m * 60 + s + ms / 1000.0;
+                            
+                            var diff = Math.abs(seconds - currentTime);
+                            if (diff < minDiff) {{
+                                minDiff = diff;
+                                closestPoint = pt;
+                            }}
+                        }}
+                    }}
+                    
+                    // Update or create progress marker
+                    if (closestPoint) {{
+                        var lat = closestPoint.lat;
+                        var lon = closestPoint.lon;
+                        
+                        if (!progressMarker) {{
+                            // Create yellow pulsing marker
+                            progressMarker = L.marker([lat, lon], {{
+                                icon: L.divIcon({{
+                                    className: 'video-progress-marker',
+                                    html: '<div style=\"background:yellow;width:16px;height:16px;border-radius:50%;border:3px solid orange;box-shadow:0 0 10px yellow;\"></div>',
+                                    iconSize: [22, 22],
+                                    iconAnchor: [11, 11]
+                                }}),
+                                zIndexOffset: 1000
+                            }});
+                            progressMarker.addTo({map_var_name});
+                            
+                            // Also add a larger circle for visibility
+                            progressCircle = L.circle([lat, lon], {{
+                                radius: 10,
+                                color: 'orange',
+                                fillColor: 'yellow',
+                                fillOpacity: 0.4,
+                                weight: 2
+                            }});
+                            progressCircle.addTo({map_var_name});
+                        }} else {{
+                            // Update existing marker position
+                            progressMarker.setLatLng([lat, lon]);
+                            progressCircle.setLatLng([lat, lon]);
+                        }}
+                    }}
+                }}
+            }});
+            </script>
+            '''
+            
+            # Insert the script before closing body tag
+            map_html = map_html.replace('</body>', marker_script + '</body>')
+    
+    return map_html
 
 @app.route('/')
 def index():
