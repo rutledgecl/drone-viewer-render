@@ -148,6 +148,7 @@ def create_map(images_data, video_gps_data):
         zoom = 15
     
     m = folium.Map(location=center, zoom_start=zoom, tiles='OpenStreetMap')
+    log.info(f"[DEBUG] Created map object, type: {type(m)}")
     
     # Image markers with track
     if images_data:
@@ -191,6 +192,7 @@ def create_map(images_data, video_gps_data):
         
         img_fg.add_to(m)
         img_track_fg.add_to(m)
+        log.info(f"[DEBUG] After adding image groups, map type: {type(m)}")
     
     # Video GPS track
     if video_gps_data:
@@ -216,12 +218,12 @@ def create_map(images_data, video_gps_data):
                 ts = pt['timestamp']  # Format: 00:00:12,345
                 ts_parts = ts.split(':')
                 if len(ts_parts) == 3:
-                    h, m, s_ms = ts_parts
+                    h, mins, s_ms = ts_parts
                     if ',' in s_ms:
                         s, ms = s_ms.split(',')
                     else:
                         s, ms = s_ms, '0'
-                    seconds = int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+                    seconds = int(h) * 3600 + int(mins) * 60 + int(s) + int(ms) / 1000.0
                 else:
                     seconds = 0
                 
