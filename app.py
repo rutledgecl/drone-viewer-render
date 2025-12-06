@@ -148,7 +148,6 @@ def create_map(images_data, video_gps_data):
         zoom = 15
     
     m = folium.Map(location=center, zoom_start=zoom, tiles='OpenStreetMap')
-    log.info(f"[DEBUG] Created map object, type: {type(m)}")
     
     # Image markers with track
     if images_data:
@@ -192,11 +191,9 @@ def create_map(images_data, video_gps_data):
         
         img_fg.add_to(m)
         img_track_fg.add_to(m)
-        log.info(f"[DEBUG] After adding image groups, map type: {type(m)}")
     
     # Video GPS track
     if video_gps_data:
-        log.info(f"[DEBUG] Starting video GPS section, creating feature groups")
         video_fg = folium.FeatureGroup(name='Video Points', show=True)
         track_fg = folium.FeatureGroup(name='Track', show=True)
         
@@ -248,7 +245,6 @@ def create_map(images_data, video_gps_data):
                     popup=folium.Popup(popup_html, max_width=180)
                 ).add_to(video_fg)
         
-        log.info(f"[DEBUG] About to add video_fg to map, map type: {type(m)}")
         video_fg.add_to(m)
         track_fg.add_to(m)
     
@@ -257,7 +253,106 @@ def create_map(images_data, video_gps_data):
     
     log.info(f"[MAP] Created map with {len(images_data)} images, {len(video_gps_data)} video points")
     
-    return m.get_root().render()
+    # Get the rendered HTML
+    map_html = m.get_root().render()
+    
+    # Add JavaScript for video progress marker (injected after map renders)
+    progress_marker_script = '''
+    <script>
+    (function() {
+        let progressMarker = null;
+        let progressCircle = null;
+        
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'updateVideoMarker') {
+                const currentTime = event.data.currentTime;
+                const gpsData = event.data.gpsData;
+                
+                if (!gpsData || gpsData.length === 0) return;
+                
+                // Find GPS point closest to current video time
+                let closestPoint = null;
+                let minDiff = Infinity;
+                
+                for (let pt of gpsData) {
+                    // Parse timestamp to seconds
+                    const ts = pt.timestamp; // Format: "00:00:12,345"
+                    const parts = ts.split(':');
+                    if (parts.length === 3) {
+                        const h = parseInt(parts[0]);
+                        const m = parseInt(parts[1]);
+                        const sParts = parts[2].split(',');
+                        const s = parseInt(sParts[0]);
+                        const ms = sParts.length > 1 ? parseInt(sParts[1]) : 0;
+                        const ptSeconds = h * 3600 + m * 60 + s + ms / 1000.0;
+                        
+                        const diff = Math.abs(ptSeconds - currentTime);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closestPoint = pt;
+                        }
+                    }
+                }
+                
+                if (closestPoint && window.map_object) {
+                    const lat = closestPoint.lat;
+                    const lon = closestPoint.lon;
+                    
+                    // Remove old marker if exists
+                    if (progressMarker) {
+                        window.map_object.removeLayer(progressMarker);
+                    }
+                    if (progressCircle) {
+                        window.map_object.removeLayer(progressCircle);
+                    }
+                    
+                    // Create pulsing yellow marker for current position
+                    progressCircle = L.circle([lat, lon], {
+                        radius: 15,
+                        color: '#FFD700',
+                        fillColor: '#FFD700',
+                        fillOpacity: 0.8,
+                        weight: 3,
+                        className: 'pulse-marker'
+                    }).addTo(window.map_object);
+                    
+                    progressMarker = L.marker([lat, lon], {
+                        icon: L.divIcon({
+                            className: 'progress-icon',
+                            html: '<div style="background:#FFD700;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 10px rgba(255,215,0,0.8)"></div>',
+                            iconSize: [12, 12]
+                        })
+                    }).addTo(window.map_object);
+                }
+            }
+        });
+        
+        // Store map reference when Folium creates it
+        setTimeout(function() {
+            const mapDivs = document.querySelectorAll('[id^="map_"]');
+            if (mapDivs.length > 0) {
+                const mapId = mapDivs[0].id;
+                window.map_object = window[mapId];
+            }
+        }, 500);
+    })();
+    </script>
+    <style>
+    @keyframes pulse {
+        0% { opacity: 0.6; transform: scale(1); }
+        50% { opacity: 0.3; transform: scale(1.3); }
+        100% { opacity: 0.6; transform: scale(1); }
+    }
+    .pulse-marker {
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+    </style>
+    '''
+    
+    # Inject the script before </body>
+    map_html = map_html.replace('</body>', progress_marker_script + '</body>')
+    
+    return map_html
 
 @app.route('/')
 def index():
